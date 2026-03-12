@@ -1,0 +1,1532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#3b82f6" />
+  <title>知识图谱构建器 | Neo4j GraphRAG</title>
+  <meta name="description" content="基于 Neo4j GraphRAG 的知识图谱构建工具，支持从文本中提取实体和关系，可视化展示知识图谱" />
+  
+  <!-- D3.js -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    :root {
+      --primary: #3b82f6;
+      --primary-dark: #2563eb;
+      --success: #10b981;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text-light: #64748b;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    
+    /* Header */
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+    }
+    
+    .header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      background: var(--primary);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .logo-icon svg {
+      width: 18px;
+      height: 18px;
+      fill: white;
+    }
+    
+    .logo-text {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    
+    .status-badge.checking {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    
+    .status-badge.connected {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    
+    .status-badge.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    
+    .status-badge.checking .status-dot {
+      animation: pulse 1s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    /* Main */
+    .main {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: white;
+      padding: 4px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    
+    .tab {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      background: transparent;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-light);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .tab.active {
+      background: var(--primary);
+      color: white;
+    }
+    
+    .tab:hover:not(.active) {
+      background: #f1f5f9;
+    }
+    
+    /* Panels */
+    .panel {
+      display: none;
+    }
+    
+    .panel.active {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    /* Card */
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+    
+    /* Form Elements */
+    textarea {
+      width: 100%;
+      min-height: 200px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.6;
+      resize: vertical;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+    
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: var(--primary-dark);
+    }
+    
+    .btn-primary:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+    
+    .btn-outline {
+      background: white;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    
+    .btn-outline:hover {
+      background: #f8fafc;
+    }
+    
+    .btn-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    
+    .btn-icon {
+      padding: 8px;
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--text-light);
+      transition: all 0.2s;
+    }
+    
+    .btn-icon:hover {
+      background: #f1f5f9;
+      color: var(--text);
+    }
+    
+    /* Progress */
+    .progress-container {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+    }
+    
+    .progress-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .progress-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #bfdbfe;
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .progress-text {
+      font-size: 14px;
+      font-weight: 500;
+      color: #1e40af;
+    }
+    
+    .progress-bar {
+      height: 4px;
+      background: #bfdbfe;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+    
+    /* Stats */
+    .stats {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .stat {
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+    
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-light);
+    }
+    
+    .stat-divider {
+      width: 1px;
+      height: 32px;
+      background: var(--border);
+    }
+    
+    .zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+    }
+    
+    .zoom-btn {
+      padding: 6px 10px;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text);
+      cursor: pointer;
+    }
+    
+    .zoom-btn:hover {
+      background: #f8fafc;
+    }
+    
+    .zoom-level {
+      font-size: 12px;
+      color: var(--text-light);
+      min-width: 40px;
+      text-align: center;
+    }
+    
+    /* Graph Container */
+    .graph-container {
+      position: relative;
+      width: 100%;
+      height: calc(100vh - 320px);
+      min-height: 400px;
+      background: white;
+      border-radius: 0 0 12px 12px;
+      overflow: hidden;
+    }
+    
+    .graph-svg {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+    
+    .graph-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-light);
+    }
+    
+    .graph-empty-icon {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+    
+    /* Config List */
+    .config-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .config-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: #f8fafc;
+      border-radius: 8px;
+    }
+    
+    .config-item input {
+      flex: 1;
+    }
+    
+    .config-item .btn-icon {
+      padding: 4px;
+      color: var(--error);
+    }
+    
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s;
+    }
+    
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+    
+    .modal-content {
+      background: white;
+      width: 100%;
+      max-width: 500px;
+      max-height: 80vh;
+      border-radius: 20px 20px 0 0;
+      padding: 20px;
+      transform: translateY(100%);
+      transition: transform 0.3s;
+      overflow-y: auto;
+    }
+    
+    .modal-overlay.active .modal-content {
+      transform: translateY(0);
+    }
+    
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+    
+    .modal-close {
+      padding: 4px;
+      background: transparent;
+      border: none;
+      font-size: 24px;
+      color: var(--text-light);
+      cursor: pointer;
+    }
+    
+    /* Node Detail */
+    .node-detail {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    
+    .node-avatar {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 700;
+      color: white;
+    }
+    
+    .node-info h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    
+    .node-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      color: white;
+    }
+    
+    /* Export Options */
+    .export-options {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .export-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: left;
+    }
+    
+    .export-btn:hover {
+      background: white;
+      border-color: var(--primary);
+    }
+    
+    .export-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+    
+    .export-info h4 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    
+    .export-info p {
+      font-size: 12px;
+      color: var(--text-light);
+    }
+    
+    /* Alert */
+    .alert {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    
+    .alert-success {
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+    }
+    
+    .alert-error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+    
+    /* Info Box */
+    .info-box {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    
+    .info-box h4 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    
+    .info-box ol {
+      font-size: 13px;
+      color: var(--text-light);
+      padding-left: 20px;
+    }
+    
+    .info-box li {
+      margin-bottom: 4px;
+    }
+    
+    /* Responsive */
+    @media (max-width: 480px) {
+      .header-content {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      
+      .btn-group {
+        grid-template-columns: 1fr;
+      }
+      
+      .stats {
+        gap: 16px;
+        padding: 10px 12px;
+      }
+      
+      .stat-value {
+        font-size: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-content">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+          </svg>
+        </div>
+        <span class="logo-text">知识图谱构建器</span>
+      </div>
+      <div id="statusBadge" class="status-badge checking">
+        <span class="status-dot"></span>
+        <span id="statusText">连接中...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main">
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-tab="input">输入文本</button>
+      <button class="tab" data-tab="config">配置</button>
+      <button class="tab" data-tab="result">图谱</button>
+    </div>
+
+    <!-- Input Panel -->
+    <div id="inputPanel" class="panel active">
+      <div class="card">
+        <div class="card-title">输入要分析的文本内容</div>
+        <textarea id="textInput" placeholder="粘贴或输入文本内容，系统将自动提取实体和关系构建知识图谱...
+
+示例：
+埃隆·马斯克是特斯拉和SpaceX的CEO。特斯拉是一家位于帕洛阿尔托的电动汽车公司，与苹果公司竞争。蒂姆·库克是苹果的CEO，苹果位于库比蒂诺。"></textarea>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-outline" onclick="loadExistingGraph()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+          加载已有图谱
+        </button>
+        <button id="buildBtn" class="btn btn-primary" onclick="buildGraph()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          开始构建
+        </button>
+      </div>
+
+      <div class="card info-box" style="margin-top: 16px;">
+        <h4>使用说明</h4>
+        <ol>
+          <li>在"配置"标签页自定义实体和关系类型</li>
+          <li>输入或粘贴要分析的文本内容</li>
+          <li>点击"开始构建"提取知识图谱</li>
+          <li>查看可视化图谱并下载结果</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Config Panel -->
+    <div id="configPanel" class="panel">
+      <div class="card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <div class="card-title" style="margin: 0;">实体类型</div>
+          <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;" onclick="addEntity()">
+            + 添加
+          </button>
+        </div>
+        <div id="entityList" class="config-list"></div>
+      </div>
+
+      <div class="card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <div class="card-title" style="margin: 0;">关系类型</div>
+          <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;" onclick="addRelation()">
+            + 添加
+          </button>
+        </div>
+        <div id="relationList" class="config-list"></div>
+      </div>
+
+      <button class="btn btn-outline" style="width: 100%;" onclick="clearGraph()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+        </svg>
+        清除数据库中的图谱
+      </button>
+    </div>
+
+    <!-- Result Panel -->
+    <div id="resultPanel" class="panel">
+      <div id="progressContainer" class="progress-container" style="display: none;">
+        <div class="progress-header">
+          <div class="progress-spinner"></div>
+          <span id="progressText" class="progress-text">准备构建...</span>
+        </div>
+        <div class="progress-bar">
+          <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div id="alertContainer"></div>
+
+      <div id="statsContainer" class="stats" style="display: none;">
+        <div class="stat">
+          <div id="nodeCount" class="stat-value">0</div>
+          <div class="stat-label">节点</div>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <div id="edgeCount" class="stat-value">0</div>
+          <div class="stat-label">关系</div>
+        </div>
+        <div class="zoom-controls">
+          <button class="zoom-btn" onclick="zoomOut()">−</button>
+          <span id="zoomLevel" class="zoom-level">100%</span>
+          <button class="zoom-btn" onclick="zoomIn()">+</button>
+          <button class="zoom-btn" onclick="fitToScreen()">⟳</button>
+        </div>
+        <button class="btn-icon" onclick="showExportModal()" title="导出">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="graph-container">
+        <svg id="graphSvg" class="graph-svg"></svg>
+        <div id="graphEmpty" class="graph-empty">
+          <svg class="graph-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>
+          <p style="font-size: 16px; font-weight: 500; margin-bottom: 8px;">暂无图谱数据</p>
+          <p style="font-size: 14px;">输入文本并点击"开始构建"</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Node Detail Modal -->
+  <div id="nodeModal" class="modal-overlay" onclick="closeNodeModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title">节点详情</h3>
+        <button class="modal-close" onclick="closeNodeModal()">&times;</button>
+      </div>
+      <div id="nodeModalBody"></div>
+    </div>
+  </div>
+
+  <!-- Export Modal -->
+  <div id="exportModal" class="modal-overlay" onclick="closeExportModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title">导出图谱数据</h3>
+        <button class="modal-close" onclick="closeExportModal()">&times;</button>
+      </div>
+      <div class="export-options">
+        <button class="export-btn" onclick="exportData('json')">
+          <div class="export-icon" style="background: #dbeafe; color: #2563eb;">{ }</div>
+          <div class="export-info">
+            <h4>JSON 格式</h4>
+            <p>完整图谱数据，适合程序处理</p>
+          </div>
+        </button>
+        <button class="export-btn" onclick="exportData('csv-nodes')">
+          <div class="export-icon" style="background: #dcfce7; color: #16a34a;">CSV</div>
+          <div class="export-info">
+            <h4>节点 CSV</h4>
+            <p>节点列表，可用 Excel 打开</p>
+          </div>
+        </button>
+        <button class="export-btn" onclick="exportData('csv-edges')">
+          <div class="export-icon" style="background: #dcfce7; color: #16a34a;">CSV</div>
+          <div class="export-info">
+            <h4>关系 CSV</h4>
+            <p>关系列表，可用 Excel 打开</p>
+          </div>
+        </button>
+        <button class="export-btn" onclick="exportData('cypher')">
+          <div class="export-icon" style="background: #f3e8ff; color: #9333ea;">$</div>
+          <div class="export-info">
+            <h4>Cypher 脚本</h4>
+            <p>Neo4j 导入脚本，可直接执行</p>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==================== 配置 ====================
+    const CONFIG = {
+      // Neo4j 配置 - 使用 REST API
+      neo4j: {
+        uri: 'neo4j+s://bc8f4144.databases.neo4j.io',
+        user: 'neo4j',
+        password: 'DAwNrh5JOdfL_Tlb6H_B4ixJVX_ytJZoiVEtOGwvmJ8'
+      },
+      // DeepSeek 配置
+      deepseek: {
+        apiKey: 'sk-92e1098214e44130b5a360585e43bc0e',
+        baseUrl: 'https://api.deepseek.com'
+      }
+    };
+
+    // 实体和关系配置
+    let entityTypes = [
+      { label: 'Person', description: '人物' },
+      { label: 'Company', description: '公司' },
+      { label: 'Location', description: '地点' },
+      { label: 'Product', description: '产品' },
+      { label: 'Organization', description: '组织' },
+      { label: 'Event', description: '事件' }
+    ];
+
+    let relationTypes = [
+      { label: 'WORKS_AT', description: '工作于' },
+      { label: 'LOCATED_AT', description: '位于' },
+      { label: 'COMPETES_WITH', description: '竞争' },
+      { label: 'PRODUCES', description: '生产' },
+      { label: 'MANAGED_BY', description: '管理' },
+      { label: 'RELATED_TO', description: '相关' }
+    ];
+
+    // 图谱数据
+    let graphData = { nodes: [], edges: [] };
+    let currentZoom = 1;
+    let zoomBehavior = null;
+
+    // 节点颜色
+    const NODE_COLORS = {
+      Person: '#3b82f6',
+      Company: '#10b981',
+      Location: '#f59e0b',
+      Product: '#8b5cf6',
+      Organization: '#06b6d4',
+      Event: '#ef4444',
+      default: '#6b7280'
+    };
+
+    function getNodeColor(type) {
+      return NODE_COLORS[type] || NODE_COLORS.default;
+    }
+
+    // ==================== 初始化 ====================
+    document.addEventListener('DOMContentLoaded', () => {
+      initTabs();
+      renderConfig();
+      testConnection();
+    });
+
+    // 标签页切换
+    function initTabs() {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const tabName = tab.dataset.tab;
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+          tab.classList.add('active');
+          document.getElementById(tabName + 'Panel').classList.add('active');
+          
+          if (tabName === 'result') {
+            setTimeout(() => drawGraph(), 100);
+          }
+        });
+      });
+    }
+
+    // 渲染配置列表
+    function renderConfig() {
+      const entityList = document.getElementById('entityList');
+      entityList.innerHTML = entityTypes.map((e, i) => `
+        <div class="config-item">
+          <input type="text" value="${e.label}" onchange="updateEntity(${i}, 'label', this.value)" placeholder="标签">
+          <input type="text" value="${e.description || ''}" onchange="updateEntity(${i}, 'description', this.value)" placeholder="描述">
+          <button class="btn-icon" onclick="removeEntity(${i})">×</button>
+        </div>
+      `).join('');
+
+      const relationList = document.getElementById('relationList');
+      relationList.innerHTML = relationTypes.map((r, i) => `
+        <div class="config-item">
+          <input type="text" value="${r.label}" onchange="updateRelation(${i}, 'label', this.value)" placeholder="标签" style="width: 100px;">
+          <input type="text" value="${r.description || ''}" onchange="updateRelation(${i}, 'description', this.value)" placeholder="描述">
+          <button class="btn-icon" onclick="removeRelation(${i})">×</button>
+        </div>
+      `).join('');
+    }
+
+    // ==================== Neo4j REST API ====================
+    async function neo4jQuery(query, params = {}) {
+      const { uri, user, password } = CONFIG.neo4j;
+      
+      // 将 neo4j+s:// 转换为 https://
+      const httpUri = uri.replace('neo4j+s://', 'https://') + '/db/neo4j/tx/commit';
+      
+      const statements = [{
+        statement: query,
+        parameters: params
+      }];
+
+      const response = await fetch(httpUri, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Basic ' + btoa(user + ':' + password)
+        },
+        body: JSON.stringify({ statements })
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Neo4j 错误: ${response.status} - ${error}`);
+      }
+
+      const data = await response.json();
+      if (data.errors && data.errors.length > 0) {
+        throw new Error(data.errors[0].message);
+      }
+
+      return data.results[0];
+    }
+
+    async function testConnection() {
+      const badge = document.getElementById('statusBadge');
+      const text = document.getElementById('statusText');
+      
+      try {
+        await neo4jQuery('RETURN 1');
+        badge.className = 'status-badge connected';
+        text.textContent = '已连接';
+      } catch (error) {
+        badge.className = 'status-badge error';
+        text.textContent = '连接失败';
+        console.error('连接失败:', error);
+      }
+    }
+
+    async function clearGraph() {
+      if (!confirm('确定要清除数据库中的所有图谱数据吗？')) return;
+      
+      try {
+        await neo4jQuery('MATCH (n) DETACH DELETE n');
+        graphData = { nodes: [], edges: [] };
+        alert('图谱数据已清除');
+        drawGraph();
+      } catch (error) {
+        alert('清除失败: ' + error.message);
+      }
+    }
+
+    async function loadExistingGraph() {
+      try {
+        const result = await neo4jQuery(`
+          MATCH (n)
+          RETURN n.id as id, n.name as label, labels(n)[0] as type, properties(n) as properties
+        `);
+
+        const nodes = result.data.map(row => ({
+          id: row.row[0] || '',
+          label: row.row[1] || row.row[0] || '',
+          type: row.row[2] || 'Unknown',
+          properties: row.row[3] || {}
+        }));
+
+        const edgeResult = await neo4jQuery(`
+          MATCH (a)-[r]->(b)
+          RETURN a.id as source, b.id as target, type(r) as type, properties(r) as properties
+        `);
+
+        const edges = edgeResult.data.map((row, i) => ({
+          id: 'edge_' + i,
+          source: row.row[0] || '',
+          target: row.row[1] || '',
+          type: row.row[2] || 'RELATES_TO',
+          properties: row.row[3] || {}
+        }));
+
+        graphData = { nodes, edges };
+        
+        if (nodes.length > 0) {
+          switchTab('result');
+          drawGraph();
+          updateStats();
+        } else {
+          alert('数据库中暂无图谱数据');
+        }
+      } catch (error) {
+        alert('加载失败: ' + error.message);
+      }
+    }
+
+    // ==================== DeepSeek LLM ====================
+    async function extractEntitiesAndRelations(text) {
+      const entityDesc = entityTypes.map(e => `${e.label}(${e.description || ''})`).join(', ');
+      const relationDesc = relationTypes.map(r => `${r.label}(${r.description || ''})`).join(', ');
+
+      const prompt = `你是一个知识图谱构建专家。请从以下文本中提取实体和关系。
+
+实体类型: ${entityDesc}
+关系类型: ${relationDesc}
+
+文本内容:
+"""
+${text}
+"""
+
+请以 JSON 格式返回提取结果，格式如下:
+{
+  "entities": [
+    {
+      "id": "唯一标识(使用英文，如person_1, company_1)",
+      "label": "实体名称(原文中的名称)",
+      "type": "实体类型(必须是上述实体类型之一)",
+      "properties": {}
+    }
+  ],
+  "relations": [
+    {
+      "source": "源实体id",
+      "target": "目标实体id",
+      "type": "关系类型(必须是上述关系类型之一)",
+      "properties": {}
+    }
+  ]
+}
+
+注意:
+1. 只返回 JSON，不要有其他文字
+2. 实体类型和关系类型必须是上述预定义的类型
+3. id 必须是唯一的英文标识`;
+
+      const response = await fetch(`${CONFIG.deepseek.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${CONFIG.deepseek.apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          max_tokens: 4096
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`DeepSeek API 错误: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0]?.message?.content || '';
+
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('LLM 未返回有效的 JSON 格式');
+      }
+
+      const result = JSON.parse(jsonMatch[0]);
+      return {
+        entities: (result.entities || []).filter(e => e.id && e.label && e.type),
+        relations: (result.relations || []).filter(r => r.source && r.target && r.type)
+      };
+    }
+
+    // ==================== 构建图谱 ====================
+    async function buildGraph() {
+      const text = document.getElementById('textInput').value.trim();
+      if (!text) {
+        alert('请输入文本内容');
+        return;
+      }
+
+      const buildBtn = document.getElementById('buildBtn');
+      buildBtn.disabled = true;
+
+      switchTab('result');
+      showProgress('preparing', '准备构建...', 5);
+
+      try {
+        // 清除现有数据
+        showProgress('preparing', '清除现有数据...', 10);
+        await neo4jQuery('MATCH (n) DETACH DELETE n');
+
+        // 提取实体和关系
+        showProgress('extracting', '正在提取实体和关系...', 20);
+        const result = await extractEntitiesAndRelations(text);
+        
+        showProgress('extracting', `提取完成: ${result.entities.length} 个实体, ${result.relations.length} 个关系`, 50);
+
+        // 创建节点
+        showProgress('building', '写入数据库...', 55);
+        for (let i = 0; i < result.entities.length; i++) {
+          const entity = result.entities[i];
+          const props = { id: entity.id, name: entity.label, ...(entity.properties || {}) };
+          const propsStr = Object.entries(props)
+            .map(([k, v]) => `${k}: "${String(v).replace(/"/g, '\\"')}"`)
+            .join(', ');
+          
+          await neo4jQuery(`CREATE (n:${entity.type} {${propsStr}})`);
+          
+          const progress = 55 + Math.floor((i / result.entities.length) * 20);
+          showProgress('building', `已创建 ${i + 1}/${result.entities.length} 个节点`, progress);
+        }
+
+        // 创建关系
+        showProgress('building', '创建关系...', 75);
+        for (let i = 0; i < result.relations.length; i++) {
+          const rel = result.relations[i];
+          await neo4jQuery(
+            `MATCH (a {id: $fromId}), (b {id: $toId}) CREATE (a)-[r:${rel.type}]->(b)`,
+            { fromId: rel.source, toId: rel.target }
+          );
+          
+          const progress = 75 + Math.floor((i / result.relations.length) * 20);
+          showProgress('building', `已创建 ${i + 1}/${result.relations.length} 个关系`, progress);
+        }
+
+        // 加载最终数据
+        await loadExistingGraph();
+        showProgress('completed', `构建完成! ${graphData.nodes.length} 个节点, ${graphData.edges.length} 个关系`, 100);
+        showAlert('success', `知识图谱构建完成! 共 ${graphData.nodes.length} 个节点, ${graphData.edges.length} 个关系`);
+
+      } catch (error) {
+        showProgress('error', error.message, 0);
+        showAlert('error', '构建失败: ' + error.message);
+      } finally {
+        buildBtn.disabled = false;
+        setTimeout(() => {
+          document.getElementById('progressContainer').style.display = 'none';
+        }, 2000);
+      }
+    }
+
+    // ==================== 图谱可视化 ====================
+    function drawGraph() {
+      const svg = d3.select('#graphSvg');
+      svg.selectAll('*').remove();
+
+      if (graphData.nodes.length === 0) {
+        document.getElementById('graphEmpty').style.display = 'flex';
+        document.getElementById('statsContainer').style.display = 'none';
+        return;
+      }
+
+      document.getElementById('graphEmpty').style.display = 'none';
+      document.getElementById('statsContainer').style.display = 'flex';
+      updateStats();
+
+      const container = document.querySelector('.graph-container');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      svg.attr('width', width).attr('height', height);
+
+      const g = svg.append('g').attr('class', 'graph-container');
+
+      // 箭头
+      svg.append('defs').append('marker')
+        .attr('id', 'arrowhead')
+        .attr('viewBox', '-0 -5 10 10')
+        .attr('refX', 20)
+        .attr('refY', 0)
+        .attr('orient', 'auto')
+        .attr('markerWidth', 6)
+        .attr('markerHeight', 6)
+        .append('path')
+        .attr('d', 'M 0,-5 L 10,0 L 0,5')
+        .attr('fill', '#94a3b8');
+
+      // 准备数据
+      const nodes = graphData.nodes.map(n => ({ ...n }));
+      const nodeMap = new Map();
+      nodes.forEach(n => nodeMap.set(n.id, n));
+
+      const links = graphData.edges.map(e => ({
+        ...e,
+        source: nodeMap.get(e.source) || { id: e.source, label: e.source, type: 'Unknown' },
+        target: nodeMap.get(e.target) || { id: e.target, label: e.target, type: 'Unknown' }
+      }));
+
+      // 力导向模拟
+      const simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id(d => d.id).distance(120).strength(0.5))
+        .force('charge', d3.forceManyBody().strength(-400))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(35));
+
+      // 绘制边
+      const link = g.append('g')
+        .selectAll('line')
+        .data(links)
+        .enter()
+        .append('line')
+        .attr('stroke', '#94a3b8')
+        .attr('stroke-width', 2)
+        .attr('marker-end', 'url(#arrowhead)');
+
+      // 绘制节点
+      const node = g.append('g')
+        .selectAll('g')
+        .data(nodes)
+        .enter()
+        .append('g')
+        .style('cursor', 'pointer')
+        .call(d3.drag()
+          .on('start', dragStarted)
+          .on('drag', dragged)
+          .on('end', dragEnded))
+        .on('click', (event, d) => showNodeDetail(d));
+
+      node.append('circle')
+        .attr('r', 24)
+        .attr('fill', d => getNodeColor(d.type))
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 3);
+
+      node.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dy', '0.35em')
+        .attr('fill', '#fff')
+        .attr('font-size', '14px')
+        .attr('font-weight', 'bold')
+        .text(d => d.label.charAt(0).toUpperCase());
+
+      // 更新位置
+      simulation.on('tick', () => {
+        link
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y);
+
+        node.attr('transform', d => `translate(${d.x},${d.y})`);
+      });
+
+      // 缩放
+      zoomBehavior = d3.zoom()
+        .scaleExtent([0.3, 3])
+        .on('zoom', (event) => {
+          g.attr('transform', event.transform);
+          currentZoom = event.transform.k;
+          document.getElementById('zoomLevel').textContent = Math.round(currentZoom * 100) + '%';
+        });
+
+      svg.call(zoomBehavior);
+
+      function dragStarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      }
+
+      function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+      }
+
+      function dragEnded(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      }
+    }
+
+    // ==================== 缩放控制 ====================
+    function zoomIn() {
+      if (zoomBehavior) {
+        d3.select('#graphSvg').transition().call(zoomBehavior.scaleBy, 1.3);
+      }
+    }
+
+    function zoomOut() {
+      if (zoomBehavior) {
+        d3.select('#graphSvg').transition().call(zoomBehavior.scaleBy, 0.7);
+      }
+    }
+
+    function fitToScreen() {
+      if (zoomBehavior) {
+        const container = document.querySelector('.graph-container');
+        d3.select('#graphSvg').transition().call(
+          zoomBehavior.transform,
+          d3.zoomIdentity.translate(container.clientWidth / 2, container.clientHeight / 2).scale(1)
+        );
+      }
+    }
+
+    // ==================== UI 辅助函数 ====================
+    function switchTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
+      document.getElementById(name + 'Panel').classList.add('active');
+    }
+
+    function showProgress(status, message, progress) {
+      const container = document.getElementById('progressContainer');
+      const text = document.getElementById('progressText');
+      const fill = document.getElementById('progressFill');
+
+      container.style.display = 'block';
+      text.textContent = message;
+      fill.style.width = progress + '%';
+
+      if (status === 'completed' || status === 'error') {
+        container.querySelector('.progress-spinner').style.display = 'none';
+      } else {
+        container.querySelector('.progress-spinner').style.display = 'block';
+      }
+    }
+
+    function showAlert(type, message) {
+      const container = document.getElementById('alertContainer');
+      container.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+      setTimeout(() => container.innerHTML = '', 5000);
+    }
+
+    function updateStats() {
+      document.getElementById('nodeCount').textContent = graphData.nodes.length;
+      document.getElementById('edgeCount').textContent = graphData.edges.length;
+    }
+
+    // 配置管理
+    function addEntity() {
+      entityTypes.push({ label: 'NewEntity', description: '' });
+      renderConfig();
+    }
+
+    function updateEntity(index, field, value) {
+      entityTypes[index][field] = value;
+    }
+
+    function removeEntity(index) {
+      entityTypes.splice(index, 1);
+      renderConfig();
+    }
+
+    function addRelation() {
+      relationTypes.push({ label: 'NEW_RELATION', description: '' });
+      renderConfig();
+    }
+
+    function updateRelation(index, field, value) {
+      relationTypes[index][field] = value;
+    }
+
+    function removeRelation(index) {
+      relationTypes.splice(index, 1);
+      renderConfig();
+    }
+
+    // 节点详情
+    function showNodeDetail(node) {
+      const modal = document.getElementById('nodeModal');
+      const body = document.getElementById('nodeModalBody');
+
+      const relatedEdges = graphData.edges.filter(e => e.source === node.id || e.target === node.id);
+
+      body.innerHTML = `
+        <div class="node-detail">
+          <div class="node-avatar" style="background: ${getNodeColor(node.type)}">${node.label.charAt(0).toUpperCase()}</div>
+          <div class="node-info">
+            <h3>${node.label}</h3>
+            <span class="node-badge" style="background: ${getNodeColor(node.type)}">${node.type}</span>
+          </div>
+        </div>
+        ${relatedEdges.length > 0 ? `
+          <div style="margin-top: 16px;">
+            <p style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">相关关系</p>
+            ${relatedEdges.slice(0, 5).map(e => {
+              const isSource = e.source === node.id;
+              const otherId = isSource ? e.target : e.source;
+              const other = graphData.nodes.find(n => n.id === otherId);
+              return `
+                <div style="display: flex; align-items: center; gap: 8px; padding: 8px; background: #f8fafc; border-radius: 8px; margin-bottom: 4px;">
+                  <span style="font-size: 12px; color: #64748b;">${isSource ? '→' : '←'} ${e.type}</span>
+                  <span style="font-size: 14px; font-weight: 500;">${other?.label || otherId}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : ''}
+      `;
+
+      modal.classList.add('active');
+    }
+
+    function closeNodeModal(event) {
+      if (!event || event.target === document.getElementById('nodeModal')) {
+        document.getElementById('nodeModal').classList.remove('active');
+      }
+    }
+
+    // 导出
+    function showExportModal() {
+      document.getElementById('exportModal').classList.add('active');
+    }
+
+    function closeExportModal(event) {
+      if (!event || event.target === document.getElementById('exportModal')) {
+        document.getElementById('exportModal').classList.remove('active');
+      }
+    }
+
+    function exportData(format) {
+      if (!graphData.nodes.length) {
+        alert('暂无数据可导出');
+        return;
+      }
+
+      let content = '', filename = '', mimeType = '';
+
+      switch (format) {
+        case 'json':
+          content = JSON.stringify(graphData, null, 2);
+          filename = 'knowledge-graph.json';
+          mimeType = 'application/json';
+          break;
+        case 'csv-nodes':
+          content = 'id,label,type,properties\n' + graphData.nodes.map(n =>
+            `${n.id},"${n.label}","${n.type}","${JSON.stringify(n.properties || {}).replace(/"/g, '""')}"`
+          ).join('\n');
+          filename = 'nodes.csv';
+          mimeType = 'text/csv';
+          break;
+        case 'csv-edges':
+          content = 'id,source,target,type,properties\n' + graphData.edges.map(e =>
+            `${e.id},"${e.source}","${e.target}","${e.type}","${JSON.stringify(e.properties || {}).replace(/"/g, '""')}"`
+          ).join('\n');
+          filename = 'edges.csv';
+          mimeType = 'text/csv';
+          break;
+        case 'cypher':
+          const nodes = graphData.nodes.map(n => {
+            const props = n.properties ? Object.entries(n.properties).map(([k, v]) => `${k}: "${v}"`).join(', ') : '';
+            return `CREATE (:${n.type} {id: "${n.id}", label: "${n.label}"${props ? ', ' + props : ''}})`;
+          }).join(';\n');
+          const edges = graphData.edges.map(e =>
+            `MATCH (a {id: "${e.source}"}), (b {id: "${e.target}"}) CREATE (a)-[:${e.type}]->(b)`
+          ).join(';\n');
+          content = `// 节点\n${nodes};\n\n// 关系\n${edges};`;
+          filename = 'knowledge-graph.cypher';
+          mimeType = 'text/plain';
+          break;
+      }
+
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      closeExportModal();
+    }
+  </script>
+</body>
+</html>
